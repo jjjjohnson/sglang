@@ -185,12 +185,18 @@ class LOOKAHEADWorker:
                 for r, token in zip(batch.reqs, next_token_ids_cpu):
                     self.rids[r.rid] = len(self.rids)
                     put_ids = r.fill_ids + [token]
-                    self.lookahead_cache.put(
-                        put_ids[1:],
-                        branch_length=self.num_branch_token * 2,
-                        mode="input",
-                        idx=self.rids[r.rid],
+                    thread = threading.Thread(
+                        target=self.lookahead_cache.put,
+                        args=(
+                            put_ids[1:],
+                            self.num_branch_token * 2,
+                            False,
+                            "input",
+                            self.rids[r.rid],
+                        ),
+                        daemon=True,
                     )
+                    thread.start()
             return logits_output, next_token_ids, model_worker_batch, 0
 
     def finish_request(self, reqs: Union[Req, List[Req]]):
@@ -202,12 +208,18 @@ class LOOKAHEADWorker:
                     req.origin_input_ids[-self.num_branch_token :] + req.output_ids
                 )
                 # update the lookahead_cache after the request is finished, and do the clean up
-                self.lookahead_cache.put(
-                    put_ids,
-                    branch_length=self.num_branch_token * 2,
-                    mode="output",
-                    idx=self.rids[req.rid],
-                    final=True,
+                thread = threading.Thread(
+                    target=self.lookahead_cache.put,
+                    args=(
+                        put_ids,
+                        self.num_branch_token * 2,
+                        True,
+                        "output",
+                        self.rids[req.rid],
+                    ),
+                    daemon=True,
                 )
+                thread.start()
+
                 if len(self.rids) >= 1000:
                     self.rids = dict(list(self.rids.items())[-500:])
